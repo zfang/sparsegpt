@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import transformers
 
+from quant import *
 from sparsegpt import * 
 from modelutils import *
 
@@ -28,7 +29,7 @@ def get_bloom(model):
     return model
 
 @torch.no_grad()
-def bloom_sequential(model, dataloader, dev, means=None, stds=None):
+def bloom_sequential(model, dataloader, dev, wbits, means=None, stds=None):
     print('Starting ...')
 
     use_cache = model.config.use_cache
@@ -83,6 +84,11 @@ def bloom_sequential(model, dataloader, dev, means=None, stds=None):
             if (not (args.minlayer <= i < args.maxlayer and args.prune_only in name)) == (not args.invert):
                 continue
             gpts[name] = SparseGPT(subset[name])
+            if wbits < 16:
+                gpts[name].quantizer = Quantizer()
+                gpts[name].quantizer.configure(
+                    wbits, perchannel=True, sym=False, mse=False
+                )
 
         def add_batch(name):
             def tmp(_, inp, out):
@@ -248,6 +254,10 @@ if __name__ == '__main__':
         help='Whether to run the GMP baseline.'
     )
     parser.add_argument(
+        '--wbits', type=int, default=16,
+        help='Whether to quantize as well.'
+    )
+    parser.add_argument(
         '--minlayer', type=int, default=-1,
         help='Prune all layers with id >= this.'
     )
@@ -288,7 +298,7 @@ if __name__ == '__main__':
 
     if (args.sparsity or args.prunen) and not args.gmp:
         tick = time.time()
-        bloom_sequential(model, dataloader, DEV)
+        bloom_sequential(model, dataloader, DEV, args.wbits)
         for n, p in model.named_parameters():
             print(n, torch.mean((p == 0).float()))
             if 'dense_4h_to_h' in n:
