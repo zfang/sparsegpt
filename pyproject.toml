@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "sparsegpt"
+version = "0.0.1"
+description = ""
+authors = []
+readme = "README.md"
+packages = [{include = "sparsegpt"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+transformers = "^4.30.2"
+datasets = "^2.13.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
