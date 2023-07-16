@@ -18,6 +18,8 @@ except ImportError:
 
 
 def get_bloom(model):
+    import torch
+
     def skip(*args, **kwargs):
         pass
 

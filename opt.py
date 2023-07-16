@@ -16,6 +16,8 @@ except ImportError:
 
 
 def get_opt(model):
+    import torch
+
     def skip(*args, **kwargs):
         pass
 

@@ -16,6 +16,8 @@ except ImportError:
 
 
 def get_llama(model):
+    import torch
+
     def skip(*args, **kwargs):
         pass
 
