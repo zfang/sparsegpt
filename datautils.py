@@ -10,6 +10,7 @@ def set_seed(seed):
     np.random.seed(seed)
     torch.random.manual_seed(seed)
 
+
 def get_tokenizer(model):
     if "llama" in model.lower():
         tokenizer = LlamaTokenizer.from_pretrained(model, use_fast=False)
@@ -24,8 +25,8 @@ def get_tokenizer(model):
         tokenizer = AutoTokenizer.from_pretrained(model, use_fast=False)
     return tokenizer
 
-def get_wikitext2(nsamples, seed, seqlen, model, tokenizer):
-    
+
+def get_wikitext2(nsamples, seed, seqlen, tokenizer):
     traindata = load_dataset('wikitext', 'wikitext-2-raw-v1', split='train')
     testdata = load_dataset('wikitext', 'wikitext-2-raw-v1', split='test')
 
@@ -43,7 +44,8 @@ def get_wikitext2(nsamples, seed, seqlen, model, tokenizer):
         trainloader.append((inp, tar))
     return trainloader, testenc
 
-def get_ptb(nsamples, seed, seqlen, model, tokenizer):
+
+def get_ptb(nsamples, seed, seqlen, tokenizer):
     traindata = load_dataset('ptb_text_only', 'penn_treebank', split='train')
     testdata = load_dataset('ptb_text_only', 'penn_treebank', split='test')
 
@@ -61,7 +63,8 @@ def get_ptb(nsamples, seed, seqlen, model, tokenizer):
         trainloader.append((inp, tar))
     return trainloader, testenc
 
-def get_c4(nsamples, seed, seqlen, model, tokenizer):
+
+def get_c4(nsamples, seed, seqlen, tokenizer):
     traindata = load_dataset(
         'allenai/c4', 'allenai--c4', data_files={'train': 'en/c4-train.00000-of-01024.json.gz'}, split='train'
     )
@@ -90,15 +93,17 @@ def get_c4(nsamples, seed, seqlen, model, tokenizer):
     class TokenizerWrapper:
         def __init__(self, input_ids):
             self.input_ids = input_ids
+
     valenc = TokenizerWrapper(valenc)
 
     return trainloader, valenc
 
+
 def get_loaders(name, nsamples=128, seed=0, seqlen=2048, model=''):
     tokenizer = get_tokenizer(model)
     if 'wikitext2' in name:
-        return get_wikitext2(nsamples, seed, seqlen, model, tokenizer)
+        return get_wikitext2(nsamples, seed, seqlen, tokenizer)
     if 'ptb' in name:
-        return get_ptb(nsamples, seed, seqlen, model, tokenizer)
+        return get_ptb(nsamples, seed, seqlen, tokenizer)
     if 'c4' in name:
-        return get_c4(nsamples, seed, seqlen, model, tokenizer)
+        return get_c4(nsamples, seed, seqlen, tokenizer)

@@ -9,15 +9,16 @@ from quant import *
 
 try:
     import wandb
+
     has_wandb = True
-except:
+except ImportError:
     has_wandb = False
 
 
 def get_llama(model):
-    import torch
     def skip(*args, **kwargs):
         pass
+
     torch.nn.init.kaiming_uniform_ = skip
     torch.nn.init.uniform_ = skip
     torch.nn.init.normal_ = skip
@@ -28,7 +29,7 @@ def get_llama(model):
 
 
 @torch.no_grad()
-def llama_sequential(model, dataloader, dev):
+def llama_sequential(model, dataloader, dev, args):
     print("Starting...")
 
     use_cache = model.config.use_cache
@@ -94,9 +95,7 @@ def llama_sequential(model, dataloader, dev):
 
             gpts = {}
             for name in subset:
-                if (
-                    not (args.minlayer <= i < args.maxlayer and args.prune_only in name)
-                ) == (not args.invert):
+                if (not (args.minlayer <= i < args.maxlayer and args.prune_only in name)) == (not args.invert):
                     continue
                 gpts[name] = SparseGPT(subset[name])
                 if args.wbits < 16:
@@ -148,7 +147,7 @@ def llama_sequential(model, dataloader, dev):
 
 
 @torch.no_grad()
-def llama_eval(model, testenc, dev,  dataset: str, log_wandb: bool = False):
+def llama_eval(model, testenc, dev, dataset: str, args: object):
     print("Evaluating ...")
 
     testenc = testenc.input_ids
@@ -180,7 +179,7 @@ def llama_eval(model, testenc, dev,  dataset: str, log_wandb: bool = False):
 
     layers[0] = Catcher(layers[0])
     for i in range(nsamples):
-        batch = testenc[:, (i * model.seqlen) : ((i + 1) * model.seqlen)].to(dev)
+        batch = testenc[:, (i * model.seqlen): ((i + 1) * model.seqlen)].to(dev)
         try:
             model(batch)
         except ValueError:
@@ -226,7 +225,7 @@ def llama_eval(model, testenc, dev,  dataset: str, log_wandb: bool = False):
             hidden_states = model.model.norm(hidden_states)
         lm_logits = model.lm_head(hidden_states)
         shift_logits = lm_logits[:, :-1, :].contiguous()
-        shift_labels = testenc[:, (i * model.seqlen) : ((i + 1) * model.seqlen)][:, 1:]
+        shift_labels = testenc[:, (i * model.seqlen): ((i + 1) * model.seqlen)][:, 1:]
         loss_fct = nn.CrossEntropyLoss()
         loss = loss_fct(
             shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
@@ -235,7 +234,7 @@ def llama_eval(model, testenc, dev,  dataset: str, log_wandb: bool = False):
         nlls.append(neg_log_likelihood)
     ppl = torch.exp(torch.stack(nlls).sum() / (nsamples * model.seqlen))
     print(f"Perplexity: {ppl.item():3f}")
-    if log_wandb:
+    if args.log_wandb:
         wandb.log({f"{dataset}/perplexity": ppl.item()})
 
     model.config.use_cache = use_cache
@@ -314,13 +313,13 @@ if __name__ == "__main__":
     model = get_llama(args.model)
     model.eval()
 
-    dataloader, testloader = get_loaders(
-        args.dataset, nsamples=args.nsamples, seed=args.seed, model=args.model, seqlen=model.seqlen
-    )
-
     if (args.sparsity or args.prunen) and not args.gmp:
+        dataloader, testloader = get_loaders(
+            args.dataset, nsamples=args.nsamples, seed=args.seed, model=args.model, seqlen=model.seqlen
+        )
+
         tick = time.time()
-        llama_sequential(model, dataloader, DEV)
+        llama_sequential(model, dataloader, DEV, args)
         for n, p in model.named_parameters():
             print(n, torch.mean((p == 0).float()))
             if 'down_proj' in n:
@@ -332,7 +331,7 @@ if __name__ == "__main__":
             dataset, seed=args.seed, model=args.model, seqlen=model.seqlen
         )
         print("Dataset:", dataset)
-        llama_eval(model, testloader, DEV, dataset, args.log_wandb)
+        llama_eval(model, testloader, DEV, dataset, args)
 
     if args.save:
         model.save_pretrained(args.save)

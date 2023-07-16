@@ -7,8 +7,7 @@ import transformers
 
 from quant import *
 
-
-DEBUG = False 
+DEBUG = False
 
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
@@ -46,7 +45,7 @@ class SparseGPT:
         self.H += inp.matmul(inp.t())
 
     def fasterprune(
-        self, sparsity, prunen=0, prunem=0, blocksize=128, percdamp=.01
+            self, sparsity, prunen=0, prunem=0, blocksize=128, percdamp=.01
     ):
         W = self.layer.weight.data.clone()
         if isinstance(self.layer, nn.Conv2d):
@@ -89,7 +88,7 @@ class SparseGPT:
             Losses1 = torch.zeros_like(W1)
             Hinv1 = Hinv[i1:i2, i1:i2]
 
-            if prunen == 0: 
+            if prunen == 0:
                 if mask is not None:
                     mask1 = mask[:, i1:i2]
                 else:

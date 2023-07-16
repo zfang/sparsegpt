@@ -3,21 +3,22 @@ import time
 import torch
 import torch.nn as nn
 
+from modelutils import *
 from quant import *
 from sparsegpt import *
-from modelutils import *
 
 try:
     import wandb
+
     has_wandb = True
-except:
-    has_wandb = False 
+except ImportError:
+    has_wandb = False
 
 
 def get_opt(model):
-    import torch
     def skip(*args, **kwargs):
         pass
+
     torch.nn.init.kaiming_uniform_ = skip
     torch.nn.init.uniform_ = skip
     torch.nn.init.normal_ = skip
@@ -26,20 +27,21 @@ def get_opt(model):
     model.seqlen = model.config.max_position_embeddings
     return model
 
+
 @torch.no_grad()
-def opt_sequential(model, dataloader, dev):
+def opt_sequential(model, dataloader, dev, args):
     print('Starting ...')
 
     use_cache = model.config.use_cache
     model.config.use_cache = False
     layers = model.model.decoder.layers
 
-    model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.to(dev) 
+    model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.to(dev)
     model.model.decoder.embed_positions = model.model.decoder.embed_positions.to(dev)
     if hasattr(model.model.decoder, 'project_out') and model.model.decoder.project_out:
-        model.model.decoder.project_out = model.model.decoder.project_out.to(dev) 
+        model.model.decoder.project_out = model.model.decoder.project_out.to(dev)
     if hasattr(model.model.decoder, 'project_in') and model.model.decoder.project_in:
-        model.model.decoder.project_in = model.model.decoder.project_in.to(dev) 
+        model.model.decoder.project_in = model.model.decoder.project_in.to(dev)
     layers[0] = layers[0].to(dev)
 
     dtype = next(iter(model.parameters())).dtype
@@ -52,11 +54,13 @@ def opt_sequential(model, dataloader, dev):
         def __init__(self, module):
             super().__init__()
             self.module = module
+
         def forward(self, inp, **kwargs):
             inps[cache['i']] = inp
             cache['i'] += 1
             cache['attention_mask'] = kwargs['attention_mask']
             raise ValueError
+
     layers[0] = Catcher(layers[0])
     for batch in dataloader:
         try:
@@ -83,11 +87,11 @@ def opt_sequential(model, dataloader, dev):
         layer = layers[i].to(dev)
 
         subset = find_layers(layer)
-        
+
         gpts = {}
         for name in subset:
             if (not (args.minlayer <= i < args.maxlayer and args.prune_only in name)) == (not args.invert):
-              continue
+                continue
             gpts[name] = SparseGPT(subset[name])
             if args.wbits < 16:
                 gpts[name].quantizer = Quantizer()
@@ -98,7 +102,9 @@ def opt_sequential(model, dataloader, dev):
         def add_batch(name):
             def tmp(_, inp, out):
                 gpts[name].add_batch(inp[0].data, out.data)
+
             return tmp
+
         handles = []
         for name in gpts:
             handles.append(subset[name].register_forward_hook(add_batch(name)))
@@ -127,8 +133,9 @@ def opt_sequential(model, dataloader, dev):
 
     model.config.use_cache = use_cache
 
+
 @torch.no_grad()
-def opt_eval(model, testenc, dev, dataset: str, log_wandb: bool = False):
+def opt_eval(model, testenc, dev, dataset: str, args: object):
     print('Evaluating ...')
 
     testenc = testenc.input_ids
@@ -141,9 +148,9 @@ def opt_eval(model, testenc, dev, dataset: str, log_wandb: bool = False):
     model.model.decoder.embed_tokens = model.model.decoder.embed_tokens.to(dev)
     model.model.decoder.embed_positions = model.model.decoder.embed_positions.to(dev)
     if hasattr(model.model.decoder, 'project_out') and model.model.decoder.project_out:
-        model.model.decoder.project_out = model.model.decoder.project_out.to(dev) 
+        model.model.decoder.project_out = model.model.decoder.project_out.to(dev)
     if hasattr(model.model.decoder, 'project_in') and model.model.decoder.project_in:
-        model.model.decoder.project_in = model.model.decoder.project_in.to(dev) 
+        model.model.decoder.project_in = model.model.decoder.project_in.to(dev)
     layers[0] = layers[0].to(dev)
 
     dtype = next(iter(model.parameters())).dtype
@@ -156,11 +163,13 @@ def opt_eval(model, testenc, dev, dataset: str, log_wandb: bool = False):
         def __init__(self, module):
             super().__init__()
             self.module = module
+
         def forward(self, inp, **kwargs):
             inps[cache['i']] = inp
             cache['i'] += 1
             cache['attention_mask'] = kwargs['attention_mask']
             raise ValueError
+
     layers[0] = Catcher(layers[0])
     for i in range(nsamples):
         batch = testenc[:, (i * model.seqlen):((i + 1) * model.seqlen)].to(dev)
@@ -216,17 +225,15 @@ def opt_eval(model, testenc, dev, dataset: str, log_wandb: bool = False):
             hidden_states = model.model.decoder.project_out(hidden_states)
         lm_logits = model.lm_head(hidden_states)
         shift_logits = lm_logits[:, :-1, :].contiguous()
-        shift_labels = testenc[
-            :, (i * model.seqlen):((i + 1) * model.seqlen)
-        ][:, 1:]
+        shift_labels = testenc[:, (i * model.seqlen):((i + 1) * model.seqlen)][:, 1:]
         loss_fct = nn.CrossEntropyLoss()
         loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
         neg_log_likelihood = loss.float() * model.seqlen
         nlls.append(neg_log_likelihood)
     ppl = torch.exp(torch.stack(nlls).sum() / (nsamples * model.seqlen))
     print(f"Perplexity: {ppl.item():3f}")
-    if log_wandb:
-         wandb.log({f'{dataset}/perplexity': ppl.item()})
+    if args.log_wandb:
+        wandb.log({f'{dataset}/perplexity': ppl.item()})
 
     model.config.use_cache = use_cache
 
@@ -238,7 +245,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        'model', type=str, 
+        'model', type=str,
         help='OPT model to load; pass `facebook/opt-X`.'
     )
     parser.add_argument(
@@ -294,16 +301,16 @@ if __name__ == '__main__':
         help='Prune only layers that contain this text.'
     )
     parser.add_argument(
-       '--invert', action='store_true', 
-       help='Invert subset.'
+        '--invert', action='store_true',
+        help='Invert subset.'
     )
     parser.add_argument(
-       '--save', type=str, default='',
-       help='Path to saved model.'
+        '--save', type=str, default='',
+        help='Path to saved model.'
     )
     parser.add_argument(
-       '--log_wandb', action='store_true',
-       help='Whether to log to wandb.'
+        '--log_wandb', action='store_true',
+        help='Whether to log to wandb.'
     )
 
     args = parser.parse_args()
@@ -322,7 +329,7 @@ if __name__ == '__main__':
 
     if (args.sparsity or args.prunen) and not args.gmp:
         tick = time.time()
-        opt_sequential(model, dataloader, DEV)
+        opt_sequential(model, dataloader, DEV, args)
         for n, p in model.named_parameters():
             print(n, torch.mean((p == 0).float()))
             if 'fc2' in n:
@@ -334,7 +341,7 @@ if __name__ == '__main__':
             dataset, seed=args.seed, model=args.model, seqlen=model.seqlen
         )
         print(dataset)
-        opt_eval(model, testloader, DEV, dataset, args.log_wandb)
+        opt_eval(model, testloader, DEV, dataset, args)
 
     if args.save:
         model.save_pretrained(args.save)
