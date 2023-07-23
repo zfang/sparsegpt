@@ -15,7 +15,7 @@ except ImportError:
     has_wandb = False
 
 
-def get_opt(model):
+def get_opt(model, use_safetensors):
     import torch
 
     def skip(*args, **kwargs):
@@ -25,7 +25,7 @@ def get_opt(model):
     torch.nn.init.uniform_ = skip
     torch.nn.init.normal_ = skip
     from transformers import OPTForCausalLM
-    model = OPTForCausalLM.from_pretrained(model, torch_dtype='auto')
+    model = OPTForCausalLM.from_pretrained(model, torch_dtype='auto', use_safetensors=use_safetensors)
     model.seqlen = model.config.max_position_embeddings
     return model
 
@@ -307,6 +307,10 @@ if __name__ == '__main__':
         help='Invert subset.'
     )
     parser.add_argument(
+        '--use_safetensors', action='store_true',
+        help='Use safetensors to load model.'
+    )
+    parser.add_argument(
         '--save', type=str, default='',
         help='Path to saved model.'
     )
@@ -322,7 +326,7 @@ if __name__ == '__main__':
         assert has_wandb, "wandb not installed try `pip install wandb`"
         wandb.init(config=args)
 
-    model = get_opt(args.model)
+    model = get_opt(args.model, args.use_safetensors)
     model.eval()
 
     dataloader, testloader = get_loaders(

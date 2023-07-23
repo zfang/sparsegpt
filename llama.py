@@ -15,7 +15,7 @@ except ImportError:
     has_wandb = False
 
 
-def get_llama(model):
+def get_llama(model, use_safetensors):
     import torch
 
     def skip(*args, **kwargs):
@@ -25,7 +25,7 @@ def get_llama(model):
     torch.nn.init.uniform_ = skip
     torch.nn.init.normal_ = skip
     from transformers import LlamaForCausalLM
-    model = LlamaForCausalLM.from_pretrained(model, torch_dtype='auto')
+    model = LlamaForCausalLM.from_pretrained(model, torch_dtype='auto', use_safetensors=use_safetensors)
     model.seqlen = 2048
     return model
 
@@ -295,6 +295,7 @@ if __name__ == "__main__":
         help="Prune only layers that contain this text.",
     )
     parser.add_argument("--invert", action="store_true", help="Invert subset.")
+    parser.add_argument("--use_safetensors", action="store_true", help="Use safetensors to load model.")
     parser.add_argument("--save", type=str, default="", help="Path to saved model.")
     parser.add_argument(
         "--true-sequential",
@@ -312,7 +313,7 @@ if __name__ == "__main__":
         assert has_wandb, "wandb not installed try `pip install wandb`"
         wandb.init(config=args)
 
-    model = get_llama(args.model)
+    model = get_llama(args.model, args.use_safetensors)
     model.eval()
 
     if (args.sparsity or args.prunen) and not args.gmp:
